@@ -1,0 +1,505 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// AUTH & USER MODELS
+// ============================================================================
+
+model User {
+  id                    String    @id @default(cuid())
+  clerkId               String    @unique
+  email                 String    @unique
+  firstName             String?
+  lastName              String?
+  avatar                String?
+  bio                   String?
+  
+  // Profile & Preferences
+  age                   Int?
+  gender                String?   // "female", "male", "other"
+  weight                Float?    // kg
+  height                Float?    // cm
+  bodyFatPercentage     Float?
+  
+  // Wearable Integration
+  garminConnected       Boolean   @default(false)
+  garminAccessToken     String?
+  garminRefreshToken    String?
+  garminUserId          String?   @unique
+  ouraConnected         Boolean   @default(false)
+  ouraAccessToken       String?
+  
+  // Onboarding
+  onboardingComplete    Boolean   @default(false)
+  activityLevel         String?   // "sedentary", "lightly_active", "moderately_active", "very_active"
+  trainingStyle         String[]  // ["strength", "endurance", "hybrid", "cardio"]
+  goals                 String[]  // ["muscle_gain", "fat_loss", "performance", "body_recomposition"]
+  
+  // Privacy & Settings
+  privacyMode           Boolean   @default(false)
+  emailNotifications    Boolean   @default(true)
+  pushNotifications     Boolean   @default(true)
+  
+  // Timestamps
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  // Relations
+  goals_rel             Goal[]
+  wearableData          WearableData[]
+  workouts              Workout[]
+  recoveryMetrics       RecoveryMetrics[]
+  nutritionLogs         NutritionLog[]
+  macroTargets          MacroTarget[]
+  dailyScores           DailyScore[]
+  coachingInsights      CoachingInsight[]
+  progressMetrics       ProgressMetric[]
+  menstrualCycles       MenstrualCycle[]
+  subscriptions         Subscription[]
+  
+  @@index([clerkId])
+  @@index([email])
+}
+
+model Goal {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type                  String    // "muscle_gain", "fat_loss", "performance", "body_recomposition"
+  priority              Int       @default(1) // 1-5, higher = more important
+  targetWeight          Float?    // kg
+  targetDate            DateTime?
+  currentWeight         Float?
+  
+  isActive              Boolean   @default(true)
+  
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  @@index([userId])
+}
+
+// ============================================================================
+// WEARABLE DATA MODELS (Garmin, Oura, Apple Health)
+// ============================================================================
+
+model WearableData {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  date                  DateTime  // Date of the data
+  source                String    // "garmin", "oura", "apple_health"
+  
+  // Sleep Data
+  sleepDuration         Float?    // minutes
+  sleepScore            Float?    // 0-100
+  sleepQuality          String?   // "poor", "fair", "good", "excellent"
+  deepSleep             Float?    // minutes
+  remSleep              Float?    // minutes
+  lightSleep            Float?    // minutes
+  sleepStartTime        DateTime?
+  sleepEndTime          DateTime?
+  
+  // HRV & Heart Rate
+  hrv                   Float?    // Heart Rate Variability (ms)
+  restingHeartRate      Float?    // bpm
+  averageHeartRate      Float?    // bpm
+  maxHeartRate          Float?    // bpm
+  
+  // Recovery & Body Metrics
+  bodyBattery           Float?    // 0-100 (Garmin metric)
+  recoveryStatus        String?   // "poor", "fair", "good", "excellent"
+  stressLevel           Float?    // 0-100
+  bodyTemperature       Float?    // Celsius (Oura)
+  
+  // Activity Data
+  activeCalories        Float?    // calories
+  totalCalories         Float?    // calories
+  steps                 Int?
+  distance              Float?    // km
+  activityMinutes       Int?      // moderate to vigorous activity minutes
+  trainingLoad          Float?    // Load score from workout
+  vo2Max                Float?    // ml/kg/min
+  
+  // Menstrual Cycle (if applicable)
+  cyclePhase            String?   // "menstruation", "follicular", "ovulation", "luteal"
+  cycleDayNumber        Int?
+  
+  // Additional Metrics
+  skinTemperature       Float?    // Celsius
+  oxygenSaturation      Float?    // percentage
+  
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([date])
+  @@unique([userId, date, source])
+}
+
+model MenstrualCycle {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  cycleStartDate        DateTime
+  cycleDuration         Int       // days
+  menstruationDays      Int       // days
+  phase                 String    // "menstruation", "follicular", "ovulation", "luteal"
+  
+  isActive              Boolean   @default(true)
+  
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  @@index([userId])
+}
+
+// ============================================================================
+// WORKOUT & TRAINING DATA
+// ============================================================================
+
+model Workout {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  date                  DateTime
+  type                  String    // "strength", "cardio", "endurance", "mixed", "recovery"
+  name                  String?   // e.g., "Leg Day", "5K Run"
+  description           String?
+  
+  // Training Load & Intensity
+  durationMinutes       Int
+  intensity             String    // "low", "moderate", "high", "very_high"
+  trainingLoad          Float?    // 0-100 score
+  rpe                   Float?    // Rate of Perceived Exertion (1-10)
+  
+  // Metrics
+  caloriesBurned        Float?
+  averageHeartRate      Float?
+  maxHeartRate          Float?
+  
+  // Muscular Focus (for strength training)
+  muscleFocus           String[]? // ["chest", "back", "legs", "arms", "core"]
+  volumeMetric          String?   // volume, reps, time
+  volumeValue           Float?
+  
+  // Cardio Metrics
+  distanceKm            Float?
+  averagePaceMinPerKm   Float?
+  elevationGainM        Float?
+  
+  // Recovery Metrics
+  recoveryNeeded        Int?      // hours of recovery
+  recoveryScore         Float?    // post-workout (0-100)
+  hrv                   Float?    // measured post-workout
+  
+  source                String?   // "garmin", "manual", "strava"
+  externalId            String?   // ID from external source
+  
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([date])
+}
+
+// ============================================================================
+// RECOVERY & READINESS METRICS
+// ============================================================================
+
+model RecoveryMetrics {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  date                  DateTime
+  
+  // Composite Scores
+  readinessScore        Float    // 0-100
+  recoveryScore         Float    // 0-100
+  fatigueScore          Float    // 0-100 (higher = more fatigued)
+  
+  // Component Scores
+  sleepRecovery         Float    // 0-100
+  hrvRecovery           Float    // 0-100
+  stressRecovery        Float    // 0-100
+  nutritionRecovery     Float    // 0-100
+  
+  // Status
+  recommendedIntensity  String   // "rest", "recovery", "moderate", "high", "maximum"
+  shouldTrain           Boolean  @default(true)
+  trainingModification  String?  // "reduce_volume", "reduce_intensity", "rest", "none"
+  
+  // Narrative
+  summary               String?
+  
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([date])
+  @@unique([userId, date])
+}
+
+// ============================================================================
+// NUTRITION & MACRO MODELS
+// ============================================================================
+
+model NutritionLog {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  date                  DateTime
+  mealType              String    // "breakfast", "lunch", "dinner", "snack", "pre_workout", "post_workout"
+  mealTime              DateTime?
+  
+  foodItems             FoodItem[]
+  
+  // Aggregated Macros
+  calories              Float
+  protein               Float    // grams
+  carbs                 Float    // grams
+  fats                  Float    // grams
+  fiber                 Float    // grams
+  
+  // Metadata
+  notes                 String?
+  source                String?   // "manual", "barcode", "photo", "recipe"
+  imageUrl              String?
+  
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([date])
+}
+
+model FoodItem {
+  id                    String    @id @default(cuid())
+  nutritionLogId        String
+  nutritionLog          NutritionLog @relation(fields: [nutritionLogId], references: [id], onDelete: Cascade)
+  
+  foodName              String
+  quantity              Float
+  unit                  String    // "g", "oz", "cup", "ml"
+  
+  calories              Float
+  protein               Float
+  carbs                 Float
+  fats                  Float
+  fiber                 Float
+  micronutrients        Json?     // {iron, calcium, vitamin_d, etc}
+  
+  createdAt             DateTime  @default(now())
+  
+  @@index([nutritionLogId])
+}
+
+model MacroTarget {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  date                  DateTime  // Date for which targets apply
+  
+  // Daily Targets
+  targetCalories        Float
+  targetProtein         Float    // grams
+  targetCarbs           Float    // grams
+  targetFats            Float    // grams
+  targetFiber           Float?   // grams
+  hydrationTarget       Float    // liters
+  
+  // Target Calculation Inputs
+  trainingLoad          Float?   // from workout
+  sleepScore            Float?
+  hrvTrend              String?  // "improving", "stable", "declining"
+  recoveryStatus        String?
+  cyclePhase            String?  // menstrual cycle phase
+  
+  // Rationale
+  calculationMethod     String   // "adaptive", "static", "manual"
+  notes                 String?
+  
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([date])
+  @@unique([userId, date])
+}
+
+// ============================================================================
+// DAILY SCORES & ANALYSIS
+// ============================================================================
+
+model DailyScore {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  date                  DateTime
+  
+  // Comprehensive Scores
+  readinessScore        Float    // 0-100
+  recoveryScore         Float    // 0-100
+  trainingQualityScore  Float    // 0-100
+  nutritionAdherence    Float    // 0-100
+  fuelingQualityScore   Float    // 0-100
+  overallScore          Float    // 0-100
+  
+  // Component Scores
+  sleepScore            Float
+  hrvScore              Float
+  stressScore           Float
+  activityScore         Float
+  nutritionScore        Float
+  hydrationScore        Float
+  
+  // Trend Indicators
+  hrvTrend              String    // "improving", "stable", "declining"
+  recoveryTrend         String
+  performanceTrend      String
+  
+  // Status & Alerts
+  alerts                String[]  // array of alert messages
+  recommendations       String[]  // array of recommendations
+  
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([date])
+  @@unique([userId, date])
+}
+
+// ============================================================================
+// AI COACHING & INSIGHTS
+// ============================================================================
+
+model CoachingInsight {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  date                  DateTime  // Date insight generated for
+  
+  type                  String    // "recovery", "nutrition", "training", "trend", "alert", "performance"
+  priority              String    // "low", "medium", "high", "critical"
+  category              String    // specific insight category
+  
+  title                 String
+  message               String
+  actionItems           String[]? // recommended actions
+  
+  // Data Supporting the Insight
+  dataPoints            Json?     // {hrv_trend: [-5, -3, -2], sleep_avg: 6.5, etc}
+  confidence            Float?    // 0-100, how confident is the insight
+  
+  // Engagement
+  isRead                Boolean   @default(false)
+  isActioned            Boolean   @default(false)
+  dismissedAt           DateTime?
+  
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([date])
+  @@index([type])
+}
+
+// ============================================================================
+// PROGRESS & TREND TRACKING
+// ============================================================================
+
+model ProgressMetric {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  date                  DateTime
+  metricType            String    // "weight", "muscle_mass", "body_fat", "performance", "energy", "mood"
+  
+  value                 Float
+  unit                  String    // "kg", "lbs", "percent", "score"
+  
+  // Trend Data
+  weeklyAverage         Float?
+  monthlyAverage        Float?
+  trendDirection        String?   // "improving", "stable", "declining"
+  
+  notes                 String?
+  source                String?   // "manual", "scale", "garmin", "bio_impedance"
+  
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([date])
+  @@index([metricType])
+}
+
+// ============================================================================
+// SUBSCRIPTION & BILLING
+// ============================================================================
+
+model Subscription {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  plan                  String    // "free", "pro", "elite"
+  status                String    // "active", "paused", "cancelled", "expired"
+  
+  stripeCustomerId      String?   @unique
+  stripeSubscriptionId  String?   @unique
+  stripePriceId         String?
+  
+  currentPeriodStart    DateTime
+  currentPeriodEnd      DateTime
+  
+  autoRenew             Boolean   @default(true)
+  
+  features              String[]  // ["garmin_integration", "ai_coaching", "advanced_analytics"]
+  
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  cancelledAt           DateTime?
+  
+  @@index([userId])
+}
+
+// ============================================================================
+// AUDIT & LOGGING
+// ============================================================================
+
+model AuditLog {
+  id                    String    @id @default(cuid())
+  userId                String?   // Optional, for system events
+  action                String
+  resource              String    // "user", "workout", "nutrition_log", etc
+  resourceId            String?
+  
+  oldValues             Json?
+  newValues             Json?
+  
+  ipAddress             String?
+  userAgent             String?
+  
+  createdAt             DateTime  @default(now())
+  
+  @@index([userId])
+  @@index([resource])
+}
